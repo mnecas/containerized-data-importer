@@ -1277,10 +1277,11 @@ func (vs *VDDKDataSource) TransferFile(fileName string, preallocation bool) (Pro
 		changeIDPattern := `([0-9a-fA-F]{2}\s?)*-([0-9a-fA-F]{2}\s?)*\/([0-9a-fA-F]*)`
 		isChangeID, _ := regexp.MatchString(changeIDPattern, vs.PreviousSnapshot)
 		changeId := vs.PreviousSnapshot
-		if os.Getenv(common.ImporterNBDURI) != "" && vs.PreviousSnapshot == "" {
+		if vs.PreviousSnapshot == "*" || (os.Getenv(common.ImporterNBDURI) != "" && vs.PreviousSnapshot == "") {
 			changeId = "*"
 			isChangeID = true
 		}
+		klog.Infof("QueryChangedDiskAreas changeId=%q", changeId)
 		var previousSnapshot *types.ManagedObjectReference
 		if !isChangeID {
 			err = vs.VMware.withVMwareReloginRetry(func() error {
@@ -1396,6 +1397,10 @@ func (vs *VDDKDataSource) TransferFile(fileName string, preallocation bool) (Pro
 			}
 
 			blocks := GetBlockStatus(vs.NbdKit.Handle, extent)
+			if os.Getenv(common.ImporterNBDURI) != "" {
+				klog.Infof("Remote NBD cold copy: skipping GetBlockStatus, copying %d bytes at offset %d as data", extent.Length, extent.Start)
+				blocks = []*BlockStatusData{{Offset: extent.Start, Length: extent.Length}}
+			}
 			for _, block := range blocks {
 				err := CopyRange(vs.NbdKit.Handle, sink, block, updateProgress)
 				if err != nil {
