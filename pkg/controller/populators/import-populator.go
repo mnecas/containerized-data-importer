@@ -255,6 +255,9 @@ func (r *ImportPopulatorReconciler) updatePVCForPopulation(pvc *corev1.Persisten
 	}
 	if vddk := volumeImportSource.Spec.Source.VDDK; vddk != nil {
 		cc.UpdateVDDKAnnotations(annotations, vddk)
+		if uri, ok := volumeImportSource.Annotations[cc.AnnNBDSource]; ok && uri != "" {
+			annotations[cc.AnnNBDSource] = uri
+		}
 		return
 	}
 	// Our webhook doesn't allow VolumeImportSources without source, so this should never happen.

@@ -170,6 +170,9 @@ func (r *ImportReconciler) updateAnnotations(dataVolume *cdiv1.DataVolume, pvc *
 	}
 	if vddk := dataVolume.Spec.Source.VDDK; vddk != nil {
 		cc.UpdateVDDKAnnotations(annotations, vddk)
+		if uri, ok := dataVolume.Annotations[cc.AnnNBDSource]; ok && uri != "" {
+			annotations[cc.AnnNBDSource] = uri
+		}
 		return nil
 	}
 	if dataVolume.Spec.Source.Blank != nil {
@@ -388,6 +391,9 @@ func (r *ImportReconciler) reconcileVolumeImportSourceCR(syncState *dvSyncState)
 			ContentType:   dv.Spec.ContentType,
 			Preallocation: dv.Spec.Preallocation,
 		},
+	}
+	if uri, ok := dv.Annotations[cc.AnnNBDSource]; ok && uri != "" {
+		importSource.Annotations = map[string]string{cc.AnnNBDSource: uri}
 	}
 
 	if isMultiStage {

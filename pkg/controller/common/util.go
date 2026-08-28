@@ -154,6 +154,8 @@ const (
 	AnnVddkInitImageURL = AnnAPIGroup + "/storage.pod.vddk.initimageurl"
 	// AnnVddkExtraArgs references a ConfigMap that holds arguments to pass directly to the VDDK library
 	AnnVddkExtraArgs = AnnAPIGroup + "/storage.pod.vddk.extraargs"
+	// AnnNBDSource is a remote NBD URL; importer uses it instead of nbdkit-vddk.
+	AnnNBDSource = AnnAPIGroup + "/storage.nbd.source"
 
 	// AnnRequiresScratch provides a const for our PVC requiring scratch annotation
 	AnnRequiresScratch = AnnAPIGroup + "/storage.import.requiresScratch"

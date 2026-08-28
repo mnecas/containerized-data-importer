@@ -90,6 +90,23 @@ type NbdKitLogWatcherVddk struct {
 
 // createNbdKitWrapper starts nbdkit and returns a process handle for further management
 func createNbdKitWrapper(vmware *VMwareClient, diskFileName, snapshot string) (*NbdKitWrapper, error) {
+	if uri := os.Getenv(common.ImporterNBDURI); uri != "" {
+		handle, err := libnbd.Create()
+		if err != nil {
+			return nil, err
+		}
+		_ = handle.AddMetaContext("base:allocation")
+		if err := handle.ConnectUri(uri); err != nil {
+			handle.Close()
+			return nil, err
+		}
+		u, err := url.Parse(uri)
+		if err != nil {
+			handle.Close()
+			return nil, err
+		}
+		return &NbdKitWrapper{Socket: u, Handle: handle}, nil
+	}
 	args := image.NbdKitVddkPluginArgs{
 		Server:     vmware.url.Host,
 		Username:   vmware.username,
@@ -1071,7 +1088,9 @@ func createVddkDataSource(cfg VDDKDataSourceConfig) (*VDDKDataSource, error) {
 	}
 
 	MaxPreadLength = MaxPreadLengthESX
-	if vmware.conn.IsVC() {
+	if os.Getenv(common.ImporterNBDURI) != "" {
+		MaxPreadLength = 16 << 20
+	} else if vmware.conn.IsVC() {
 		klog.Infof("Connected to vCenter, restricting read request size to %d.", MaxPreadLengthVC)
 		MaxPreadLength = MaxPreadLengthVC
 	}
@@ -1105,7 +1124,10 @@ func (vs *VDDKDataSource) Info() (ProcessingPhase, error) {
 // Close closes any readers or other open resources.
 func (vs *VDDKDataSource) Close() error {
 	vs.NbdKit.Handle.Close()
-	return vs.NbdKit.n.KillNbdkit()
+	if vs.NbdKit.n != nil {
+		return vs.NbdKit.n.KillNbdkit()
+	}
+	return nil
 }
 
 // GetURL returns the url that the data processor can use when converting the data.
@@ -1209,7 +1231,7 @@ func (vs *VDDKDataSource) TransferFile(fileName string, preallocation bool) (Pro
 		}
 	}
 
-	if vs.IsDeltaCopy() { // Warm migration delta copy
+	if vs.IsDeltaCopy() || (os.Getenv(common.ImporterNBDURI) != "" && vs.CurrentSnapshot != "" && vs.PreviousSnapshot == "") {
 		// Find disk object for backingFile disk image path
 		var backingFileObject *types.VirtualDisk
 		err := vs.VMware.withVMwareReloginRetry(func() error {
@@ -1254,6 +1276,11 @@ func (vs *VDDKDataSource) TransferFile(fileName string, preallocation bool) (Pro
 		// Change IDs look like: 52 de c0 d9 b9 43 9d 10-61 d5 4c 1b e9 7b 65 63/81
 		changeIDPattern := `([0-9a-fA-F]{2}\s?)*-([0-9a-fA-F]{2}\s?)*\/([0-9a-fA-F]*)`
 		isChangeID, _ := regexp.MatchString(changeIDPattern, vs.PreviousSnapshot)
+		changeId := vs.PreviousSnapshot
+		if os.Getenv(common.ImporterNBDURI) != "" && vs.PreviousSnapshot == "" {
+			changeId = "*"
+			isChangeID = true
+		}
 		var previousSnapshot *types.ManagedObjectReference
 		if !isChangeID {
 			err = vs.VMware.withVMwareReloginRetry(func() error {
@@ -1281,7 +1308,7 @@ func (vs *VDDKDataSource) TransferFile(fileName string, preallocation bool) (Pro
 			var changed types.DiskChangeInfo
 			if isChangeID { // Previous checkpoint is a change ID
 				request := types.QueryChangedDiskAreas{
-					ChangeId:    vs.PreviousSnapshot,
+					ChangeId:    changeId,
 					DeviceKey:   backingFileObject.Key,
 					Snapshot:    currentSnapshot,
 					StartOffset: offset,
@@ -1335,6 +1362,9 @@ func (vs *VDDKDataSource) TransferFile(fileName string, preallocation bool) (Pro
 			// Copy actual data from query ranges to destination
 			for _, extent := range changed.ChangedArea {
 				blocks := GetBlockStatus(vs.NbdKit.Handle, extent)
+				if os.Getenv(common.ImporterNBDURI) != "" && vs.IsDeltaCopy() {
+					blocks = []*BlockStatusData{{Offset: extent.Start, Length: extent.Length}}
+				}
 				for _, block := range blocks {
 					err := CopyRange(vs.NbdKit.Handle, sink, block, updateProgress)
 					if err != nil {

@@ -1606,6 +1606,10 @@ func createImportTestEnv(podEnvVar *importPodEnvVar, uid string) []corev1.EnvVar
 			Name:  common.ImporterChecksum,
 			Value: podEnvVar.checksum,
 		},
+		{
+			Name:  common.ImporterNBDURI,
+			Value: podEnvVar.nbdURI,
+		},
 	}
 
 	if podEnvVar.secretName != "" {
