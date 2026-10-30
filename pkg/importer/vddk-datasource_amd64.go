@@ -137,9 +137,9 @@ func createNbdKitWrapper(vmware *VMwareClient, diskFileName, snapshot string) (*
 		return nil, err
 	}
 
-	err = handle.AddMetaContext(libnbd.CONTEXT_BASE_ALLOCATION)
+	err = handle.AddMetaContext("base:allocation")
 	if err != nil {
-		klog.Errorf("Error adding %s context to libnbd handle: %v", libnbd.CONTEXT_BASE_ALLOCATION, err)
+		klog.Errorf("Error adding base:allocation context to libnbd handle: %v", err)
 	}
 
 	socket, _ := url.Parse("nbd://" + nbdUnixSocket)
@@ -175,14 +175,15 @@ func createExternalNbdConnection(uri string) (*NbdKitWrapper, error) {
 		handle.Close()
 		return nil, fmt.Errorf("invalid NBD connection URI %q: must be nbd:// or nbds:// with hostname", uri)
 	}
-	if err := handle.AddMetaContext(libnbd.CONTEXT_BASE_ALLOCATION); err != nil {
+	if err := handle.AddMetaContext("base:allocation"); err != nil {
 		handle.Close()
-		return nil, fmt.Errorf("error adding %s context: %w", libnbd.CONTEXT_BASE_ALLOCATION, err)
+		return nil, fmt.Errorf("error adding base:allocation context: %w", err)
 	}
 	if u.Scheme == "nbds" {
 		// Leave TLS priority at libnbd's default (@SYSTEM). set_tls_priority needs
-		// libnbd >= 1.24; el9 ships 1.20.3. crypto_policies_tar (amd64) provides
-		// /etc/crypto-policies/back-ends/gnutls.config so @SYSTEM resolves.
+		// libnbd >= 1.24; el9 ships 1.20.3. Downstream RPM installs create
+		// /etc/crypto-policies/back-ends/gnutls.config via crypto-policies %post
+		// so @SYSTEM resolves.
 		// Peer verification stays on: the server cert must carry a SAN matching the
 		// URI host (DNS or IP). el9 has no set_tls_hostname for a fixed logical name.
 		if err := handle.SetTls(libnbd.TLS_REQUIRE); err != nil {
@@ -682,8 +683,8 @@ func GetBlockStatus(handle NbdOperations, extent types.DiskChangeExtent) []*Bloc
 			klog.Errorf("Block status callback error at offset %d: error code %d", offset, *err)
 			return *err
 		}
-		if metacontext != libnbd.CONTEXT_BASE_ALLOCATION {
-			klog.Infof("Offset %d not %s, ignoring", offset, libnbd.CONTEXT_BASE_ALLOCATION)
+		if metacontext != "base:allocation" {
+			klog.Infof("Offset %d not base:allocation, ignoring", offset)
 			return 0
 		}
 		if (len(extents) % 2) != 0 {
